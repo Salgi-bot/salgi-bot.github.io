@@ -17,18 +17,19 @@
   input, textarea { width:100%; box-sizing:border-box; font:14px ui-monospace, Menlo, monospace; padding:8px; border:1px solid var(--dim); border-radius:6px; background:var(--box); color:var(--fg); }
   textarea { height:84px; }
   button { display:block; width:100%; margin:14px 0 4px; padding:14px; font-size:17px; font-weight:700; color:#fff; background:var(--btn); border:0; border-radius:10px; }
+  button:disabled { opacity:0.45; }
   ol { padding-left:20px; margin:8px 0; }
 </style>
 </head>
 <body>
-<h1>WristCommand 도우미 시험 (관문 1)</h1>
+<h1>WristCommand 도우미 시험 (관문 1·2)</h1>
 <p id="js" class="st bad">스크립트가 꺼져 있습니다</p>
 <p class="dim">이 페이지는 인터넷으로 아무것도 보내지 않습니다. 비밀값도 없습니다. 시험용 글자만 시계로 넘깁니다.</p>
 <ol>
   <li>[긴 시험 글자 복사]를 누르세요.</li>
   <li>아래 칸을 길게 눌러 <b>붙여넣기</b> 하세요.</li>
-  <li><b>메모 앱으로 갔다가</b> 이 화면으로 돌아오세요. 붙여넣은 글자가 남아 있어야 합니다.</li>
-  <li>[시계로 보내기]를 누르세요.</li>
+  <li><b>다른 앱(아이폰 「메모」 등 아무 앱)으로 갔다가</b> 이 화면으로 돌아오세요. 붙여넣은 글자가 남아 있어야 합니다.</li>
+  <li>[시계로 보내기]를 누르세요(한 번만).</li>
 </ol>
 
 <button id="copy" type="button">1. 긴 시험 글자 복사</button>
@@ -36,28 +37,33 @@
 <textarea id="src" readonly style="display:none"></textarea>
 
 <label for="long">2. 여기에 붙여넣기</label>
-<textarea id="long" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea>
+<textarea id="long" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
 <p id="len" class="dim">0자</p>
 
-<p class="dim">3. 메모 앱에 다녀오기 — 다녀온 횟수: <b id="vh">0</b></p>
+<p class="dim">3. 다른 앱 다녀오기 — 돌아온 횟수: <b id="back">0</b> · 돌아왔을 때 글자: <b id="kept">-</b></p>
 
 <label for="c">시험 ID</label>
 <input id="c" readonly>
 <label for="s">시험 비밀값(가짜)</label>
 <input id="s" readonly>
+<label for="x">특수문자 시험 값(가짜)</label>
+<input id="x" readonly>
 <label for="dom">파트너 등록 도메인</label>
-<input id="dom" autocapitalize="off" autocomplete="off" spellcheck="false">
-<p class="dim">도메인이 비어 있으면 관문 1만 합니다.</p>
+<input id="dom" type="url" inputmode="url" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false">
+<p id="dommsg" class="dim">도메인이 비어 있으면 관문 1만 합니다.</p>
 
 <button id="send" type="button">4. 시계로 보내기</button>
-<p class="dim">열린 시각 <span id="t0"></span> · 요청 번호 <span id="st"></span></p>
+<p class="dim">열린 시각 <span id="t0"></span> · 요청 번호 <span id="st"></span> · 불린 방식 <span id="navt"></span></p>
 
 <script>
 (function () {
   // 시계(LTE Test)와 같은 값이어야 한다 — 시계가 글자 그대로 왔는지 대조한다.
   var T_C = "wc-test-client-7f3a9c21-4b6d-4e8a-9f10-2c5d8e7b1a33";
   var T_S = "ta-secret.WcTest0123456789abcdefABCDEF0123456789abcdefXYZ";
-  var DOM_DEFAULT = "";   // 관문 2용 조직 주소가 생기면 여기에 넣는다(예: xxx.github.io)
+  // 특수문자: '+' 는 폼 방식 풀기(공백으로 바뀌는지)를 가르는 핵심 글자
+  var T_X = "a+b%20c&d=e#f/g?h i!j*k'l(m)n~o_p.q-r한글";
+  var DOM_DEFAULT = "wristcommand-key.github.io";   // 관문 2용 조직 주소(9/24 생성, 계산 공개키 게시)
+  var BLOCKED = ["salgi-bot.github.io"];   // 부사장님 개인판 파트너 도메인 — 시험에 쓰면 안 됨
   var RD = "http://localhost:8080/callback";
   var ALPHA = "0123456789abcdefghijklmnopqrstuvwxyz";
   function pattern() { var s = ""; for (var i = 0; i < 1200; i++) { s += ALPHA.charAt((i * 7 + 3) % 36); } return s; }
@@ -65,21 +71,21 @@
 
   var q = new URLSearchParams(location.search);
   var state = q.get("state") || "";
-  var t0 = Date.now().toString(36);
-  var vh = 0, bl = 0, pc = 0, cp = 0;
+  var t0 = Date.now();
+  var vh = 0, back = 0, bl = 0, pc = 0, cp = 0, ps = 0, keptOk = 0, keptBad = 0, loads = 0, sent = false;
+  var nav = "";
+  try { var ne = performance.getEntriesByType("navigation"); nav = (ne && ne[0] && ne[0].type) || ""; } catch (e) { nav = "?"; }
+  try { loads = parseInt(sessionStorage.getItem("wcLoads") || "0", 10) + 1; sessionStorage.setItem("wcLoads", String(loads)); } catch (e) { loads = -1; }
 
   $("js").textContent = "스크립트 동작 OK";
   $("js").className = "st ok";
-  $("t0").textContent = new Date().toLocaleTimeString();
+  $("t0").textContent = new Date(t0).toLocaleTimeString();
   $("st").textContent = state || "(없음)";
+  $("navt").textContent = (nav || "-") + " · " + loads + "번째";
   $("c").value = T_C;
   $("s").value = T_S;
+  $("x").value = T_X;
   $("dom").value = DOM_DEFAULT;
-
-  document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState === "hidden") { vh++; $("vh").textContent = String(vh); }
-  });
-  window.addEventListener("blur", function () { bl++; });
 
   var long = $("long");
   function showLen() {
@@ -87,32 +93,70 @@
     $("len").textContent = n + "자" + (n ? (ok ? " · 맞음" : " · 다름") : "");
     $("len").className = n ? (ok ? "ok" : "bad") : "dim";
   }
+  function onReturn() {
+    back++;
+    $("back").textContent = String(back);
+    if (long.value.length === 0) { $("kept").textContent = "비어 있음"; }
+    else if (long.value === pattern()) { keptOk++; $("kept").textContent = "남아 있음"; }
+    else { keptBad++; $("kept").textContent = "바뀜"; }
+  }
+  var hidden = false;
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") { vh++; hidden = true; }
+    else if (hidden) { hidden = false; onReturn(); }
+  });
+  window.addEventListener("pagehide", function () { if (!hidden) { vh++; hidden = true; } });
+  window.addEventListener("pageshow", function (ev) { ps++; if (ev.persisted && hidden) { hidden = false; onReturn(); } });
+  window.addEventListener("blur", function () { bl++; });
   long.addEventListener("paste", function () { pc++; setTimeout(showLen, 0); });
   long.addEventListener("input", showLen);
 
   $("copy").addEventListener("click", function () {
     var text = pattern();
-    function fallback() {
-      var src = $("src");
+    var src = $("src");
+    function manual() {
       src.style.display = "block";
       src.value = text;
       src.focus();
-      src.select();
-      try { if (document.execCommand("copy")) { cp = 2; $("cpmsg").textContent = "복사했습니다(보조 방식)."; return; } } catch (e) {}
-      $("cpmsg").textContent = "자동 복사가 막혔습니다. 위 칸을 길게 눌러 전체 선택 후 복사하세요.";
+      try { src.setSelectionRange(0, text.length); } catch (e) { src.select(); }
     }
+    // 보조 방식은 누름 바로 그 순간에 해야 권한이 산다 — 먼저 execCommand, 안 되면 clipboard API
+    manual();
+    var done = false;
+    try { done = document.execCommand("copy"); } catch (e) { done = false; }
+    if (done) { cp = 2; src.style.display = "none"; $("cpmsg").textContent = "복사했습니다. 아래 칸에 붙여넣으세요."; return; }
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(function () {
-        cp = 1; $("cpmsg").textContent = "복사했습니다. 아래 칸에 붙여넣으세요.";
-      }, fallback);
-    } else { fallback(); }
+        cp = 1; src.style.display = "none"; $("cpmsg").textContent = "복사했습니다. 아래 칸에 붙여넣으세요.";
+      }, function () { $("cpmsg").textContent = "자동 복사가 막혔습니다. 위 칸을 길게 눌러 전체 선택 후 복사하세요."; });
+    } else {
+      $("cpmsg").textContent = "자동 복사가 막혔습니다. 위 칸을 길게 눌러 전체 선택 후 복사하세요.";
+    }
   });
 
+  function cleanDomain(v) {
+    v = (v || "").trim().toLowerCase();
+    v = v.replace(/^[a-z]+:\/\//, "");
+    v = v.split("/")[0];
+    return v;
+  }
+
   $("send").addEventListener("click", function () {
+    if (sent) { return; }
+    var dom = cleanDomain($("dom").value);
+    if (BLOCKED.indexOf(dom) >= 0) {
+      $("dommsg").textContent = "이 주소(" + dom + ")는 부사장님 개인판 주소라 시험에 쓸 수 없습니다.";
+      $("dommsg").className = "bad";
+      return;
+    }
+    sent = true;
+    $("send").disabled = true;
+    $("send").textContent = "보냈습니다 — 시계를 보세요";
     var p = {
-      c: $("c").value, s: $("s").value, dom: $("dom").value.trim(),
-      long: long.value, state: state, t0: t0, js: "1",
-      vh: String(vh), bl: String(bl), pc: String(pc), cp: String(cp)
+      c: $("c").value, s: $("s").value, x: T_X, dom: dom,
+      long: long.value, state: state, t0: String(t0), js: "1",
+      vh: String(vh), back: String(back), kept: keptOk + "/" + keptBad, bl: String(bl), pc: String(pc), cp: String(cp),
+      nav: nav, loads: String(loads), ps: String(ps), age: String(Math.round((Date.now() - t0) / 1000))
     };
     var parts = [];
     for (var k in p) { parts.push(encodeURIComponent(k) + "=" + encodeURIComponent(p[k])); }
