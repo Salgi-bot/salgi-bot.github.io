@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="robots" content="noindex">
+<title>도우미 시험</title>
+<style>
+  :root { --bg:#ffffff; --fg:#111111; --dim:#666666; --ok:#0a7a2f; --bad:#b3261e; --box:#f2f2f2; --btn:#1b5fd6; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111111; --fg:#eeeeee; --dim:#aaaaaa; --ok:#5cd67f; --bad:#ff8a80; --box:#222222; --btn:#4d8dff; } }
+  body { background:var(--bg); color:var(--fg); font:16px/1.5 -apple-system, "Apple SD Gothic Neo", sans-serif; margin:0; padding:16px; }
+  h1 { font-size:20px; margin:0 0 8px; }
+  .st { font-weight:600; } .ok { color:var(--ok); } .bad { color:var(--bad); }
+  .dim { color:var(--dim); font-size:13px; }
+  label { display:block; margin:12px 0 4px; font-weight:600; }
+  input, textarea { width:100%; box-sizing:border-box; font:14px ui-monospace, Menlo, monospace; padding:8px; border:1px solid var(--dim); border-radius:6px; background:var(--box); color:var(--fg); }
+  textarea { height:84px; }
+  button { display:block; width:100%; margin:14px 0 4px; padding:14px; font-size:17px; font-weight:700; color:#fff; background:var(--btn); border:0; border-radius:10px; }
+  ol { padding-left:20px; margin:8px 0; }
+</style>
+</head>
+<body>
+<h1>WristCommand 도우미 시험 (관문 1)</h1>
+<p id="js" class="st bad">스크립트가 꺼져 있습니다</p>
+<p class="dim">이 페이지는 인터넷으로 아무것도 보내지 않습니다. 비밀값도 없습니다. 시험용 글자만 시계로 넘깁니다.</p>
+<ol>
+  <li>[긴 시험 글자 복사]를 누르세요.</li>
+  <li>아래 칸을 길게 눌러 <b>붙여넣기</b> 하세요.</li>
+  <li><b>메모 앱으로 갔다가</b> 이 화면으로 돌아오세요. 붙여넣은 글자가 남아 있어야 합니다.</li>
+  <li>[시계로 보내기]를 누르세요.</li>
+</ol>
+
+<button id="copy" type="button">1. 긴 시험 글자 복사</button>
+<p id="cpmsg" class="dim"></p>
+<textarea id="src" readonly style="display:none"></textarea>
+
+<label for="long">2. 여기에 붙여넣기</label>
+<textarea id="long" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea>
+<p id="len" class="dim">0자</p>
+
+<p class="dim">3. 메모 앱에 다녀오기 — 다녀온 횟수: <b id="vh">0</b></p>
+
+<label for="c">시험 ID</label>
+<input id="c" readonly>
+<label for="s">시험 비밀값(가짜)</label>
+<input id="s" readonly>
+<label for="dom">파트너 등록 도메인</label>
+<input id="dom" autocapitalize="off" autocomplete="off" spellcheck="false">
+<p class="dim">도메인이 비어 있으면 관문 1만 합니다.</p>
+
+<button id="send" type="button">4. 시계로 보내기</button>
+<p class="dim">열린 시각 <span id="t0"></span> · 요청 번호 <span id="st"></span></p>
+
+<script>
+(function () {
+  // 시계(LTE Test)와 같은 값이어야 한다 — 시계가 글자 그대로 왔는지 대조한다.
+  var T_C = "wc-test-client-7f3a9c21-4b6d-4e8a-9f10-2c5d8e7b1a33";
+  var T_S = "ta-secret.WcTest0123456789abcdefABCDEF0123456789abcdefXYZ";
+  var DOM_DEFAULT = "";   // 관문 2용 조직 주소가 생기면 여기에 넣는다(예: xxx.github.io)
+  var RD = "http://localhost:8080/callback";
+  var ALPHA = "0123456789abcdefghijklmnopqrstuvwxyz";
+  function pattern() { var s = ""; for (var i = 0; i < 1200; i++) { s += ALPHA.charAt((i * 7 + 3) % 36); } return s; }
+  function $(id) { return document.getElementById(id); }
+
+  var q = new URLSearchParams(location.search);
+  var state = q.get("state") || "";
+  var t0 = Date.now().toString(36);
+  var vh = 0, bl = 0, pc = 0, cp = 0;
+
+  $("js").textContent = "스크립트 동작 OK";
+  $("js").className = "st ok";
+  $("t0").textContent = new Date().toLocaleTimeString();
+  $("st").textContent = state || "(없음)";
+  $("c").value = T_C;
+  $("s").value = T_S;
+  $("dom").value = DOM_DEFAULT;
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") { vh++; $("vh").textContent = String(vh); }
+  });
+  window.addEventListener("blur", function () { bl++; });
+
+  var long = $("long");
+  function showLen() {
+    var n = long.value.length, ok = long.value === pattern();
+    $("len").textContent = n + "자" + (n ? (ok ? " · 맞음" : " · 다름") : "");
+    $("len").className = n ? (ok ? "ok" : "bad") : "dim";
+  }
+  long.addEventListener("paste", function () { pc++; setTimeout(showLen, 0); });
+  long.addEventListener("input", showLen);
+
+  $("copy").addEventListener("click", function () {
+    var text = pattern();
+    function fallback() {
+      var src = $("src");
+      src.style.display = "block";
+      src.value = text;
+      src.focus();
+      src.select();
+      try { if (document.execCommand("copy")) { cp = 2; $("cpmsg").textContent = "복사했습니다(보조 방식)."; return; } } catch (e) {}
+      $("cpmsg").textContent = "자동 복사가 막혔습니다. 위 칸을 길게 눌러 전체 선택 후 복사하세요.";
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        cp = 1; $("cpmsg").textContent = "복사했습니다. 아래 칸에 붙여넣으세요.";
+      }, fallback);
+    } else { fallback(); }
+  });
+
+  $("send").addEventListener("click", function () {
+    var p = {
+      c: $("c").value, s: $("s").value, dom: $("dom").value.trim(),
+      long: long.value, state: state, t0: t0, js: "1",
+      vh: String(vh), bl: String(bl), pc: String(pc), cp: String(cp)
+    };
+    var parts = [];
+    for (var k in p) { parts.push(encodeURIComponent(k) + "=" + encodeURIComponent(p[k])); }
+    location.href = RD + "?" + parts.join("&");
+  });
+})();
+</script>
+</body>
+</html>
